@@ -1,3 +1,5 @@
+
+
 """
 The data is in a tab delimited file with no newlines.
 
@@ -9,15 +11,6 @@ If you translate the tabs into newlines, you get this:
     100508925
     100508 AFU Alfred Frueh The Tower of Pisa in a Nervous Household (Man brings home picture of the Leaning Tower of Pisa, and everything in the room tilts the same way.)  af▒iction anxiety architecture art brings everything families family home homes household houses italian italians italy landmark leaning life man medieval monument nerves nervous picture pictures pisa print room same tilts tower towers way
     The Tower of Pisa in a Nervous Household
-    100509925
-    100509 GRE Gardner Rea ▒What▒s th▒ drunk▒s name, Reilly?▒▒Dunno, serjeant. He claims he▒s a unidenti▒ed body!▒ (Drunk in police station with fire bucket over his head.)  alcohol alcoholic alcoholism bucket cop cops department drink drinking drunk enforcement ▒re head inebriated intoxicated law liquor nypd over police policeman policemen station
-    ▒What▒s th▒ drunk▒s name, Reilly?▒▒Dunno, serjeant. He claims he▒s a unidenti▒ed body!▒
-    100510925
-    100510   Unknown Flor de Pince Nez (Man sitting in a sofa chair reading a newspaper through a pair of glasses that rest on his cigar.) arthur authors bestseller book books chair cigar cigars conan doyle eyeglasses eyesight ▒or foreign glasses highness holmes king leader literature majesty man manuscript monarch monarchy murder mystery news newspaper nez pair paper periodical pince print publishing read reading regal rest royal royalty ruler sherlock sight sir sire sitting smoke smoker smokers smokes smoking sofa stories story suspense thriller through tobacco writers writing
-    Flor de Pince Nez
-    100511925
-    100511  Oscar Howard I don▒t know what I shall do, Amelia, when I think of you alone in Paris (Man to woman looking at travel brochures.) affectionate brochures caring couple couples defenseless domestic europe france husband husbands journey journeys lonely looking loving man marriage married matrimony relationship relationships separation tourist tourists travel travels trip trips wife wives woman
-    I don▒t know what I shall do, Amelia, when I think of you alone in Paris
     100512925
     100512 WMO Wallace Morgan The Bread Line (Women waiting for entrance into a dining hall.) attraction attractive boyfriend bread charity chase couple couples cuisine date dates dating depression dining eating enteric ▒irt ▒irting food girlfriend girlfriends great hall hit hitting into line meal meals poverty relationship relationships restaurant restaurants sex sexual waiting women
     The Bread Line
@@ -28,7 +21,7 @@ Where the schema is:
 - Description / Keywords
 - Caption
 
-And these three-line groups are repeated. 
+And these three-line (or four-line, sometimes there's a date) groups are repeated. 
 
 There's also a heck of a lot of weird unicode stuff going on. Possibility to use unidecode, or perhaps python 3 will handle it automagically.
 
@@ -45,7 +38,10 @@ import os
 import re
 import sys
 import collections
+import pandas as pd
 from tqdm import tqdm
+from joblib import delayed
+from joblib import Parallel
 from unidecode import unidecode
 
 ROOT_DIR       = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -53,6 +49,8 @@ DATA_DIR       = os.path.join(ROOT_DIR, "data")
 RAW_DIR        = os.path.join(DATA_DIR, "raw")
 PROC_DIR       = os.path.join(DATA_DIR, "processed")
 
+
+################[ peter norvig's spellchecker! ]################
 
 def words(text): return re.findall('[a-z]+', text.lower()) 
 
@@ -82,6 +80,9 @@ def known(words): return set(w for w in words if w in NWORDS)
 def correct(word):
     candidates = known([word]) or known(edits1(word)) or known_edits2(word) or [word]
     return max(candidates, key=NWORDS.get)
+
+def correct_line(t):
+    return ' '.join(map(correct, words(t))) if pd.notnull(t) else t
 
 
 ################[ asciidammit is a straight rip from the fuzzywuzzy source ]################
@@ -126,10 +127,31 @@ if __name__ == '__main__':
                 line = line.lower().strip()
 
                 if not re.match(r'^[0-9]{4,}$', line):
-                    outfile.write(' ' + ' '.join(map(correct, words(line))))
+                    outfile.write(' ' + line)
                 else:
                     outfile.write('\n' + line + '|')
                     l+=1
 
     print("complete.", end='\n')
     print("got {} lines.".format(l))
+
+    print("reading cleaned csv...")
+    df = pd.read_csv(os.path.join(PROC_DIR, 'cartoondump_clean.csv'), sep='|', names=['id','text'])
+
+    print("lowercasing...")
+    docs = df.text.str.lower().str.strip()
+
+    print("correcting...")
+
+    corrected = []
+    for d in tqdm(docs):
+        corrected.append(correct_line(d))
+
+    df['document'] = pd.Series(corrected)
+
+    df.to_csv('documents.csv', index=False)
+
+    print("done.")
+
+
+
