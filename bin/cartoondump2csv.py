@@ -1,5 +1,3 @@
-
-
 """
 The data is in a tab delimited file with no newlines.
 
@@ -23,7 +21,11 @@ Where the schema is:
 
 And these three-line (or four-line, sometimes there's a date) groups are repeated. 
 
-There's also a heck of a lot of weird unicode stuff going on. Possibility to use unidecode, or perhaps python 3 will handle it automagically.
+There's also a heck of a lot of weird unicode stuff going on. Possibility to use unidecode, 
+or perhaps python 3 will handle it automagically.
+
+* * * change of plan * * * 
+use the rudimentary frequency-based spellchecker proposed by Peter Norvig.
 
 Game plan:
 - Munge tsv into a clean csv form where characters have been corrected or at least stripped of mystery characters
@@ -42,7 +44,12 @@ import pandas as pd
 from tqdm import tqdm
 from joblib import delayed
 from joblib import Parallel
+from annoy import AnnoyIndex
 from unidecode import unidecode
+from gensim.models import LdaModel
+from gensim.matutils import sparse2full
+from gensim.matutils import Sparse2Corpus
+from sklearn.feature_extraction.text import HashingVectorizer
 
 ROOT_DIR       = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 DATA_DIR       = os.path.join(ROOT_DIR, "data")
@@ -149,7 +156,32 @@ if __name__ == '__main__':
 
     df['document'] = pd.Series(corrected)
 
-    df.to_csv('documents.csv', index=False)
+    df.to_csv(os.path.join(PROC_DIR, 'cartoondump_spellchecked.csv'), index=False)
+
+    X = HashingVectorizer(stop_words='english').transform(df.document.fillna(''))
+
+    c = Sparse2Corpus(X, documents_columns=False)
+
+    tfidf = models.TfidfModel(c)
+    lsi = models.LsiModel(tfidf[c], num_topics=500)
+
+    lsi.save('/tmp/cartoondump.lsi')
+    MmCorpus.serialize('/tmp/cartoondump.mm', c)
+
+    num_features = 500
+
+    index = AnnoyIndex(num_features, metric='angular')
+
+    print("building annoy index")
+    # annoy expects index vectors as lists of Python floats
+
+    for i, vec in tqdm(enumerate(lsi[tfidf[c]])):
+        index.add_item(i, list(sparse2full(vec, num_features).astype(float)))
+
+
+    index.build(10)
+    index.save('/tmp/cartoondump.annoy')
+    print("built annoy index")
 
     print("done.")
 
